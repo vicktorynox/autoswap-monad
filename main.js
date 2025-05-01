@@ -5,6 +5,7 @@ displayHeader();
 const availableScripts = [
   { title: "Rubic Swap Script", value: "rubic" },
   { title: "aPriori Staking Script", value: "apriori" },
+  { title: "Bebop Script", value: "bebop" },
   { title: "Exit", value: "exit" },
 ];
 
@@ -27,6 +28,11 @@ async function run() {
     case "rubic":
       console.log("Running Rubic Swap...");
       const rubic = require("./scripts/rubic");
+      break;
+      
+    case "bebop":
+      console.log("Running Bebop Swap...");
+      const rubic = require("./scripts/bebop");
       break;
 
     case "magma":
