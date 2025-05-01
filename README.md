@@ -38,6 +38,7 @@ cd autoswap-monad
 2. **Edit the `.env.`** file
    Replace your_evm_private_key with your actual EVM wallet private key. It should look like this:
    ```bash
+   nano .env
    PRIVATE_KEY=0x1234...
    ```
 ctrl+s and then ctrl+x
