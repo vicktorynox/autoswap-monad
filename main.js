@@ -32,7 +32,7 @@ async function run() {
       
     case "bebop":
       console.log("Running Bebop Swap...");
-      const rubic = require("./scripts/bebop");
+      const bebop = require("./scripts/bebop");
       break;
 
     case "magma":
