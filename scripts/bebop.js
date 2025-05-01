@@ -5,21 +5,35 @@ const readline = require("readline");
 const displayHeader = require("../src/displayHeader.js");
 displayHeader();
 
-// Configuration
+// Enhanced Configuration
 const CONFIG = {
   RPC_URL: "https://carrot.megaeth.com/rpc",
   EXPLORER_URL: "https://megaexplorer.xyz",
-  WETH_CONTRACT: "0x4200000000000000000000000000000000000006", // Standard WETH address on MegaETH
-  MIN_SWAP_AMOUNT: 0.001, // ETH
+  WETH_CONTRACT: "0x4eB2Bd7beE16F38B1F4a0A5796Fffd028b6040e9", // WETH address on MegaETH
+  MIN_SWAP_AMOUNT: 0.0001, // ETH
   MAX_SWAP_AMOUNT: 0.002, // ETH
   MIN_DELAY: 1, // minutes
   MAX_DELAY: 2, // minutes
-  MIN_GAS_LIMIT: 21000,
-  MAX_GAS_LIMIT: 30000
+  GAS_BUFFER: 1.3, // 30% buffer
+  MAX_RETRIES: 3,
+  BASE_GAS_LIMIT: {
+    DEPOSIT: 25000,
+    WITHDRAW: 30000
+  }
 };
 
-// Initialize provider and wallet
-const provider = new ethers.providers.JsonRpcProvider(CONFIG.RPC_URL);
+// Initialize provider with timeout and network settings
+const provider = new ethers.providers.JsonRpcProvider(
+  {
+    url: CONFIG.RPC_URL,
+    timeout: 30000
+  },
+  {
+    chainId: 6342,
+    name: "megaeth"
+  }
+);
+
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 const wethContract = new ethers.Contract(
   CONFIG.WETH_CONTRACT,
@@ -31,9 +45,101 @@ const wethContract = new ethers.Contract(
   wallet
 );
 
-// Helper functions
+// Enhanced Gas Handling
+async function getGasParameters(operation, amount) {
+  try {
+    const feeData = await provider.getFeeData();
+    let estimatedGas;
+    
+    if (operation === 'deposit') {
+      estimatedGas = await wethContract.estimateGas.deposit({
+        value: amount
+      });
+    } else {
+      estimatedGas = await wethContract.estimateGas.withdraw(amount);
+    }
+
+    const bufferedGas = Math.floor(estimatedGas.toNumber() * CONFIG.GAS_BUFFER);
+
+    return {
+      maxFeePerGas: feeData.maxFeePerGas.mul(13).div(10), // 30% buffer
+      maxPriorityFeePerGas: feeData.maxPriorityFeePerGas.mul(13).div(10),
+      gasLimit: bufferedGas
+    };
+  } catch (error) {
+    console.error("⚠️  Gas estimation failed, using fallback values".yellow);
+    return {
+      maxFeePerGas: ethers.utils.parseUnits("50", "gwei"),
+      maxPriorityFeePerGas: ethers.utils.parseUnits("2", "gwei"),
+      gasLimit: operation === 'deposit' 
+        ? CONFIG.BASE_GAS_LIMIT.DEPOSIT 
+        : CONFIG.BASE_GAS_LIMIT.WITHDRAW
+    };
+  }
+}
+
+// Robust Wrapping Function with Retries
+async function wrapETH(amount, attempt = 1) {
+  try {
+    const gasParams = await getGasParameters('deposit', amount);
+    console.log(`🔄 Attempt ${attempt}: Wrapping ${ethers.utils.formatEther(amount)} ETH to WETH...`.magenta);
+    
+    const tx = await wethContract.deposit({
+      value: amount,
+      ...gasParams
+    });
+    
+    console.log(`✔️  Wrap successful (Gas: ${gasParams.gasLimit})`.green);
+    console.log(`➡️  ${CONFIG.EXPLORER_URL}/tx/${tx.hash}`.dim);
+    
+    const receipt = await tx.wait();
+    console.log(`⛽ Gas used: ${receipt.gasUsed.toString()}`.dim);
+    return receipt;
+  } catch (error) {
+    if (attempt >= CONFIG.MAX_RETRIES) throw error;
+    
+    console.error(`⚠️  Attempt ${attempt} failed: ${error.shortMessage || error.message}`.yellow);
+    await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+    return wrapETH(amount, attempt + 1);
+  }
+}
+
+// Robust Unwrapping Function with Retries and Balance Check
+async function unwrapWETH(amount, attempt = 1) {
+  try {
+    // First check WETH balance
+    const balance = await wethContract.balanceOf(wallet.address);
+    if (balance.lt(amount)) {
+      throw new Error(`Insufficient WETH balance (${ethers.utils.formatEther(balance)} < ${ethers.utils.formatEther(amount)})`);
+    }
+
+    const gasParams = await getGasParameters('withdraw', amount);
+    console.log(`🔄 Attempt ${attempt}: Unwrapping ${ethers.utils.formatEther(amount)} WETH...`.magenta);
+    
+    const tx = await wethContract.withdraw(amount, {
+      ...gasParams
+    });
+    
+    console.log(`✔️  Unwrap successful (Gas: ${gasParams.gasLimit})`.green);
+    console.log(`➡️  ${CONFIG.EXPLORER_URL}/tx/${tx.hash}`.dim);
+    
+    const receipt = await tx.wait();
+    console.log(`⛽ Gas used: ${receipt.gasUsed.toString()}`.dim);
+    return receipt;
+  } catch (error) {
+    if (attempt >= CONFIG.MAX_RETRIES) throw error;
+    
+    console.error(`⚠️  Attempt ${attempt} failed: ${error.shortMessage || error.message}`.yellow);
+    await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+    return unwrapWETH(amount, attempt + 1);
+  }
+}
+
+// Helper Functions
 function getRandomAmount() {
-  const randomAmount = Math.random() * (CONFIG.MAX_SWAP_AMOUNT - CONFIG.MIN_SWAP_AMOUNT) + CONFIG.MIN_SWAP_AMOUNT;
+  const randomAmount = Math.random() * 
+    (CONFIG.MAX_SWAP_AMOUNT - CONFIG.MIN_SWAP_AMOUNT) + 
+    CONFIG.MIN_SWAP_AMOUNT;
   return ethers.utils.parseEther(randomAmount.toFixed(4));
 }
 
@@ -42,14 +148,6 @@ function getRandomDelay() {
     Math.random() * 
     (CONFIG.MAX_DELAY * 60 * 1000 - CONFIG.MIN_DELAY * 60 * 1000 + 1) + 
     CONFIG.MIN_DELAY * 60 * 1000
-  );
-}
-
-function getRandomGasLimit() {
-  return Math.floor(
-    Math.random() * 
-    (CONFIG.MAX_GAS_LIMIT - CONFIG.MIN_GAS_LIMIT + 1) + 
-    CONFIG.MIN_GAS_LIMIT
   );
 }
 
@@ -63,53 +161,9 @@ async function getCurrentBalances() {
   };
 }
 
-// Swap functions
-async function wrapETH(amount) {
-  try {
-    console.log(`🔄 Wrapping ${ethers.utils.formatEther(amount)} ETH to WETH...`.magenta);
-    
-    const tx = await wethContract.deposit({
-      value: amount,
-      gasLimit: getRandomGasLimit()
-    });
-    
-    console.log(`✔️  Wrap ETH → WETH successful`.green.underline);
-    console.log(`➡️  Transaction: ${CONFIG.EXPLORER_URL}/tx/${tx.hash}`.yellow);
-    
-    const receipt = await tx.wait();
-    console.log(`⛽ Gas used: ${receipt.gasUsed.toString()}`.dim);
-    
-    return receipt;
-  } catch (error) {
-    console.error("❌ Error wrapping ETH:".red, error.message);
-    throw error;
-  }
-}
-
-async function unwrapWETH(amount) {
-  try {
-    console.log(`🔄 Unwrapping ${ethers.utils.formatEther(amount)} WETH to ETH...`.magenta);
-    
-    const tx = await wethContract.withdraw(amount, {
-      gasLimit: getRandomGasLimit()
-    });
-    
-    console.log(`✔️  Unwrap WETH → ETH successful`.green.underline);
-    console.log(`➡️  Transaction: ${CONFIG.EXPLORER_URL}/tx/${tx.hash}`.yellow);
-    
-    const receipt = await tx.wait();
-    console.log(`⛽ Gas used: ${receipt.gasUsed.toString()}`.dim);
-    
-    return receipt;
-  } catch (error) {
-    console.error("❌ Error unwrapping WETH:".red, error.message);
-    throw error;
-  }
-}
-
-// Main cycle function
+// Main Execution Flow with Interval Support
 async function runSwapCycle(cycles, intervalHours = null) {
-  console.log("\n💰 Starting ETH/WETH swap cycles...\n".bold);
+  console.log("\n💰 Starting ETH/WETH Swap Bot\n".bold);
   
   try {
     // Initial balance check
@@ -122,7 +176,7 @@ async function runSwapCycle(cycles, intervalHours = null) {
     
     const executeCycle = async () => {
       cycleCount++;
-      console.log(`\n🔄 Starting cycle ${cycleCount} of ${cycles}`.bold.blue);
+      console.log(`\n🔄 Cycle ${cycleCount} of ${cycles}`.bold.blue);
       
       const swapAmount = getRandomAmount();
       const delayMs = getRandomDelay();
@@ -145,17 +199,16 @@ async function runSwapCycle(cycles, intervalHours = null) {
           if (intervalHours) {
             console.log(`⏳ Next cycle in ${intervalHours} hour(s)...`.yellow);
           } else {
-            console.log(`⏳ Next cycle in ${delayMs / 1000 / 60} minute(s)...`.yellow);
+            console.log(`⏳ Next cycle in ${(delayMs / 1000 / 60).toFixed(1)} minutes...`.yellow);
             await new Promise(resolve => setTimeout(resolve, delayMs));
             await executeCycle();
           }
         } else {
-          console.log(`\n🎉 All ${cycles} swap cycles completed successfully!`.bold.green);
+          console.log(`\n🎉 All ${cycles} cycles completed successfully!`.bold.green);
           process.exit(0);
         }
       } catch (error) {
         console.error(`❌ Cycle ${cycleCount} failed:`.red, error.message);
-        // Optionally retry or exit
         process.exit(1);
       }
     };
@@ -177,12 +230,12 @@ async function runSwapCycle(cycles, intervalHours = null) {
       await executeCycle();
     }
   } catch (error) {
-    console.error("❌ Fatal error in swap cycles:".red, error);
+    console.error("\n❌ Fatal error in swap cycle:".red, error.message);
     process.exit(1);
   }
 }
 
-// User input handling
+// User Interface
 function promptUser() {
   const rl = readline.createInterface({
     input: process.stdin,
@@ -201,17 +254,17 @@ function promptUser() {
         process.exit(1);
       }
       
-      console.log(`\nStarting ${cycles} swap cycles ${intervalHours ? `every ${intervalHours} hour(s)` : 'with random delays'}...`.bold);
+      console.log(`\nStarting ${cycles} swap cycle${cycles !== 1 ? 's' : ''} ${intervalHours ? `every ${intervalHours} hour(s)` : 'with random delays'}...`.bold);
       runSwapCycle(cycles, intervalHours);
     });
   });
 }
 
-// Start the program
+// Start the bot
 promptUser();
 
-// Handle process termination
+// Clean shutdown
 process.on('SIGINT', () => {
-  console.log("\n🛑 Process stopped by user".red);
+  console.log("\n🛑 Bot stopped by user".red);
   process.exit(0);
 });
