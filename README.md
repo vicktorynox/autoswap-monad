@@ -17,7 +17,7 @@ This is a JavaScript bot script designed to interact with the Monad testnet.
 Clone this repository to your local machine using the following command:
 
 ```bash
-https://github.com/vicktorynox/autoswap-monad.git
+git clone https://github.com/vicktorynox/autoswap-monad.git
 cd monad-testnetbot
 ```
 
