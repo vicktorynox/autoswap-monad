@@ -4,8 +4,6 @@ displayHeader();
 
 const availableScripts = [
   { title: "Rubic Swap Script", value: "rubic" },
-  { title: "Magma Staking Script", value: "magma" },
-  { title: "Izumi Swap Script", value: "izumi" },
   { title: "aPriori Staking Script", value: "apriori" },
   { title: "Exit", value: "exit" },
 ];
