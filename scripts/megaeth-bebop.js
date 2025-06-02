@@ -12,8 +12,8 @@ const CONFIG = {
   WETH_CONTRACT: "0x4eB2Bd7beE16F38B1F4a0A5796Fffd028b6040e9", // WETH address on MegaETH
   MIN_SWAP_AMOUNT: 0.0001, // ETH
   MAX_SWAP_AMOUNT: 0.002, // ETH
-  MIN_DELAY: 60, // seconds (previously minutes)
-  MAX_DELAY: 120, // seconds (previously minutes)
+  MIN_DELAY: 5, // seconds (previously minutes)
+  MAX_DELAY: 10, // seconds (previously minutes)
   GAS_BUFFER: 1.3, // 30% buffer
   MAX_RETRIES: 3,
   BASE_GAS_LIMIT: {
