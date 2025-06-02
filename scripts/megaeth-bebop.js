@@ -5,21 +5,22 @@ const readline = require("readline");
 const displayHeader = require("../src/displayHeader.js");
 displayHeader();
 
-// Enhanced Configuration
+// Enhanced Configuration (delays in seconds)
 const CONFIG = {
   RPC_URL: "https://carrot.megaeth.com/rpc",
   EXPLORER_URL: "https://megaexplorer.xyz",
   WETH_CONTRACT: "0x4eB2Bd7beE16F38B1F4a0A5796Fffd028b6040e9", // WETH address on MegaETH
   MIN_SWAP_AMOUNT: 0.0001, // ETH
   MAX_SWAP_AMOUNT: 0.002, // ETH
-  MIN_DELAY: 1, // minutes
-  MAX_DELAY: 2, // minutes
+  MIN_DELAY: 60, // seconds (previously minutes)
+  MAX_DELAY: 120, // seconds (previously minutes)
   GAS_BUFFER: 1.3, // 30% buffer
   MAX_RETRIES: 3,
   BASE_GAS_LIMIT: {
     DEPOSIT: 25000,
     WITHDRAW: 30000
-  }
+  },
+  FIXED_GAS_PRICE: ethers.utils.parseUnits("0.001", "gwei") // 0.001 Gwei
 };
 
 // Initialize provider with timeout and network settings
@@ -45,10 +46,9 @@ const wethContract = new ethers.Contract(
   wallet
 );
 
-// Enhanced Gas Handling
+// Enhanced Gas Handling with fixed gas price
 async function getGasParameters(operation, amount) {
   try {
-    const feeData = await provider.getFeeData();
     let estimatedGas;
     
     if (operation === 'deposit') {
@@ -62,15 +62,15 @@ async function getGasParameters(operation, amount) {
     const bufferedGas = Math.floor(estimatedGas.toNumber() * CONFIG.GAS_BUFFER);
 
     return {
-      maxFeePerGas: feeData.maxFeePerGas.mul(13).div(10), // 30% buffer
-      maxPriorityFeePerGas: feeData.maxPriorityFeePerGas.mul(13).div(10),
+      maxFeePerGas: CONFIG.FIXED_GAS_PRICE,
+      maxPriorityFeePerGas: CONFIG.FIXED_GAS_PRICE,
       gasLimit: bufferedGas
     };
   } catch (error) {
     console.error("⚠️  Gas estimation failed, using fallback values".yellow);
     return {
-      maxFeePerGas: ethers.utils.parseUnits("50", "gwei"),
-      maxPriorityFeePerGas: ethers.utils.parseUnits("2", "gwei"),
+      maxFeePerGas: CONFIG.FIXED_GAS_PRICE,
+      maxPriorityFeePerGas: CONFIG.FIXED_GAS_PRICE,
       gasLimit: operation === 'deposit' 
         ? CONFIG.BASE_GAS_LIMIT.DEPOSIT 
         : CONFIG.BASE_GAS_LIMIT.WITHDRAW
@@ -143,11 +143,12 @@ function getRandomAmount() {
   return ethers.utils.parseEther(randomAmount.toFixed(4));
 }
 
+// Changed to use seconds instead of minutes
 function getRandomDelay() {
   return Math.floor(
     Math.random() * 
-    (CONFIG.MAX_DELAY * 60 * 1000 - CONFIG.MIN_DELAY * 60 * 1000 + 1) + 
-    CONFIG.MIN_DELAY * 60 * 1000
+    (CONFIG.MAX_DELAY * 1000 - CONFIG.MIN_DELAY * 1000 + 1) + 
+    CONFIG.MIN_DELAY * 1000
   );
 }
 
@@ -199,7 +200,9 @@ async function runSwapCycle(cycles, intervalHours = null) {
           if (intervalHours) {
             console.log(`⏳ Next cycle in ${intervalHours} hour(s)...`.yellow);
           } else {
-            console.log(`⏳ Next cycle in ${(delayMs / 1000 / 60).toFixed(1)} minutes...`.yellow);
+            // Convert to seconds for display
+            const delaySeconds = Math.floor(delayMs / 1000);
+            console.log(`⏳ Next cycle in ${delaySeconds} seconds...`.yellow);
             await new Promise(resolve => setTimeout(resolve, delayMs));
             await executeCycle();
           }
